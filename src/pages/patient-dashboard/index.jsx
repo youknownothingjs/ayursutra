@@ -9,71 +9,18 @@ import RecentFeedback from './components/RecentFeedback';
 import NotificationCenter from './components/NotificationCenter';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
+import { useAuth } from '../../contexts/AuthContext';
+import { appointmentService } from '../../services/appointmentService';
+import { therapyService } from '../../services/therapyService';
 
 const PatientDashboard = () => {
   const navigate = useNavigate();
+  const { user, userProfile, signOut, isAuthenticated } = useAuth();
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [userName] = useState('Arjun Patel');
-  const [isAuthenticated] = useState(true);
-  const [userRole] = useState('patient');
-
-  // Mock upcoming sessions data
-  const upcomingSessions = [
-    {
-      id: 1,
-      therapyType: 'Abhyanga',
-      therapyName: 'Full Body Oil Massage',
-      date: '2024-09-10',
-      time: '10:00',
-      location: 'Room 3, AyurSutra Clinic',
-      status: 'confirmed',
-      practitioner: {
-        name: 'Priya Sharma',
-        specialization: 'Panchakarma Specialist',
-        avatar: 'https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=400&h=400&fit=crop&crop=face'
-      },
-      preparationStatus: {
-        completed: false,
-        timeRemaining: '18 hours'
-      }
-    },
-    {
-      id: 2,
-      therapyType: 'Shirodhara',
-      therapyName: 'Medicated Oil Dripping Therapy',
-      date: '2024-09-12',
-      time: '14:30',
-      location: 'Room 1, AyurSutra Clinic',
-      status: 'pending',
-      practitioner: {
-        name: 'Rajesh Kumar',
-        specialization: 'Neurological Ayurveda',
-        avatar: 'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=400&h=400&fit=crop&crop=face'
-      },
-      preparationStatus: {
-        completed: false,
-        timeRemaining: '3 days'
-      }
-    },
-    {
-      id: 3,
-      therapyType: 'Virechana',
-      therapyName: 'Therapeutic Purgation',
-      date: '2024-09-15',
-      time: '09:00',
-      location: 'Room 2, AyurSutra Clinic',
-      status: 'preparation',
-      practitioner: {
-        name: 'Meera Patel',
-        specialization: 'Detoxification Expert',
-        avatar: 'https://images.unsplash.com/photo-1594824388853-d0c2d4b5b3e0?w=400&h=400&fit=crop&crop=face'
-      },
-      preparationStatus: {
-        completed: true,
-        timeRemaining: null
-      }
-    }
-  ];
+  const [upcomingSessions, setUpcomingSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [progressData, setProgressData] = useState(null);
 
   // Update current time every minute
   useEffect(() => {
@@ -84,6 +31,62 @@ const PatientDashboard = () => {
     return () => clearInterval(timer);
   }, []);
 
+  // Load dashboard data when user is available
+  useEffect(() => {
+    if (user?.id) {
+      loadDashboardData();
+    }
+  }, [user?.id]);
+
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      
+      // Load upcoming appointments
+      const upcomingAppointments = await appointmentService?.getUpcomingAppointments(user?.id, 3);
+      setUpcomingSessions(upcomingAppointments || []);
+
+      // Load progress data
+      const progressResults = await therapyService?.getPatientProgress(user?.id);
+      if (progressResults?.length > 0) {
+        const latestProgress = progressResults?.[0];
+        setProgressData({
+          currentWeight: latestProgress?.weight_current || 75,
+          targetWeight: 70,
+          sessionsCompleted: latestProgress?.sessions_completed || 0,
+          totalSessions: latestProgress?.total_sessions_planned || 15,
+          weeklyProgress: [
+            { week: 1, progress: 10 },
+            { week: 2, progress: 25 },
+            { week: 3, progress: 40 },
+            { week: 4, progress: Math.min((latestProgress?.progress_percentage || 0), 100) }
+          ]
+        });
+      } else {
+        // Default progress data if no progress records
+        setProgressData({
+          currentWeight: 75,
+          targetWeight: 70,
+          sessionsCompleted: 0,
+          totalSessions: 0,
+          weeklyProgress: [
+            { week: 1, progress: 0 },
+            { week: 2, progress: 0 },
+            { week: 3, progress: 0 },
+            { week: 4, progress: 0 }
+          ]
+        });
+      }
+
+    } catch (error) {
+      setError('Failed to load dashboard data');
+      console.error('Error loading dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getGreeting = () => {
     const hour = currentTime?.getHours();
     if (hour < 12) return 'Good Morning';
@@ -91,8 +94,13 @@ const PatientDashboard = () => {
     return 'Good Evening';
   };
 
-  const handleLogout = () => {
-    navigate('/patient-login');
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      navigate('/patient-login');
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
   };
 
   const handleViewSessionDetails = (sessionId) => {
@@ -140,12 +148,32 @@ const PatientDashboard = () => {
     console.log('Viewing notification:', notificationId);
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header
+          userRole={userProfile?.role || 'patient'}
+          isAuthenticated={isAuthenticated}
+          userName={userProfile?.full_name}
+          onLogout={handleLogout}
+        />
+        <main className="pt-16">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="flex items-center justify-center py-12">
+              <Icon name="Loader2" size={32} className="text-primary animate-spin" />
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Header
-        userRole={userRole}
+        userRole={userProfile?.role || 'patient'}
         isAuthenticated={isAuthenticated}
-        userName={userName}
+        userName={userProfile?.full_name}
         onLogout={handleLogout}
       />
       <main className="pt-16">
@@ -155,10 +183,10 @@ const PatientDashboard = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="font-heading text-3xl font-semibold text-foreground mb-2">
-                  {getGreeting()}, {userName?.split(' ')?.[0]}! 🙏
+                  {getGreeting()}, {userProfile?.full_name?.split(' ')?.[0] || 'Guest'}! 🙏
                 </h1>
                 <p className="font-body text-text-secondary">
-                  Welcome to your Ayurvedic wellness journey. Here's your therapy overview.
+                  Welcome to your Ayurvedic wellness journey. Here is your therapy overview.
                 </p>
               </div>
               <div className="hidden md:flex items-center space-x-4">
@@ -183,6 +211,15 @@ const PatientDashboard = () => {
             </div>
           </div>
 
+          {error && (
+            <div className="mb-6 p-4 bg-error/10 border border-error/20 rounded-lg">
+              <div className="flex items-center space-x-2">
+                <Icon name="AlertCircle" size={16} className="text-error" />
+                <span className="font-body text-sm text-error">{error}</span>
+              </div>
+            </div>
+          )}
+
           {/* Main Dashboard Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Left Column - Primary Content */}
@@ -205,14 +242,33 @@ const PatientDashboard = () => {
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {upcomingSessions?.slice(0, 2)?.map((session) => (
-                    <UpcomingSessionCard
-                      key={session?.id}
-                      session={session}
-                      onViewDetails={handleViewSessionDetails}
-                      onPrepare={handlePrepareSession}
-                    />
-                  ))}
+                  {upcomingSessions?.length > 0 ? (
+                    upcomingSessions?.slice(0, 2)?.map((session) => (
+                      <UpcomingSessionCard
+                        key={session?.id}
+                        session={session}
+                        onViewDetails={handleViewSessionDetails}
+                        onPrepare={handlePrepareSession}
+                      />
+                    ))
+                  ) : (
+                    <div className="col-span-2 text-center py-8 bg-muted/30 rounded-lg border border-border">
+                      <Icon name="Calendar" size={48} className="text-muted-foreground mx-auto mb-4" />
+                      <h3 className="font-heading font-medium text-foreground mb-2">
+                        No Upcoming Sessions
+                      </h3>
+                      <p className="font-body text-sm text-text-secondary mb-4">
+                        Book your first therapy session to begin your wellness journey
+                      </p>
+                      <Button
+                        onClick={() => navigate('/therapy-booking')}
+                        iconName="Plus"
+                        iconPosition="left"
+                      >
+                        Book Your First Session
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 {upcomingSessions?.length > 2 && (
@@ -232,21 +288,10 @@ const PatientDashboard = () => {
               {/* Progress Tracking */}
               <section>
                 <ProgressChart 
-                  progressData={{
-                    currentWeight: 75,
-                    targetWeight: 70,
-                    sessionsCompleted: 8,
-                    totalSessions: 15,
-                    weeklyProgress: [
-                      { week: 1, progress: 10 },
-                      { week: 2, progress: 25 },
-                      { week: 3, progress: 40 },
-                      { week: 4, progress: 53 }
-                    ]
-                  }}
+                  progressData={progressData}
                   milestones={[
-                    { id: 1, title: 'First Consultation', completed: true, date: '2024-08-15' },
-                    { id: 2, title: 'Detox Phase Complete', completed: true, date: '2024-08-30' },
+                    { id: 1, title: 'First Consultation', completed: progressData?.sessionsCompleted > 0, date: '2024-08-15' },
+                    { id: 2, title: 'Detox Phase Complete', completed: progressData?.sessionsCompleted > 3, date: '2024-08-30' },
                     { id: 3, title: 'Mid-treatment Assessment', completed: false, date: '2024-09-15' },
                     { id: 4, title: 'Treatment Complete', completed: false, date: '2024-10-01' }
                   ]}
